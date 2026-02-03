@@ -1,8 +1,9 @@
-flask
+Flask
 gunicorn
+python-dotenv
 google-auth
 google-auth-oauthlib
 google-api-python-client
-apscheduler
-python-dotenv
 pandas
+apscheduler
+
