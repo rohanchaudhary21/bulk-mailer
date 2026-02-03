@@ -165,6 +165,9 @@ def stats_api():
         "daily": [dict(row) for row in daily]
     }
 
+@app.route("/stats")
+def stats():
+    return render_template("stats.html")
 
 
 # ---------- SEND ----------
