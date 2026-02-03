@@ -1,9 +1,8 @@
 flask
+gunicorn
 google-auth
 google-auth-oauthlib
 google-api-python-client
-pandas
 apscheduler
 python-dotenv
-gunicorn
-
+pandas
