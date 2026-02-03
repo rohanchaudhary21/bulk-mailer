@@ -4,6 +4,9 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 import sqlite3
+from db import init_db
+init_db()
+
 load_dotenv()
 
 \
@@ -11,6 +14,26 @@ from email.mime.text import MIMEText
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from google.oauth2.credentials import Credentials
+from db import get_db
+import json
+
+def get_gmail_service(user_email):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute(
+        "SELECT token_json FROM oauth_tokens WHERE user_email=?",
+        (user_email,)
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        raise Exception("User not authenticated")
+
+    creds = Credentials.from_authorized_user_info(json.loads(row[0]))
+    return build("gmail", "v1", credentials=creds)
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 def get_db():
@@ -98,6 +121,17 @@ def callback():
 
     session["credentials"] = creds.to_json()
     return redirect("/dashboard")
+    creds = flow.credentials
+db = get_db()
+cursor = db.cursor()
+
+cursor.execute("""
+INSERT OR REPLACE INTO oauth_tokens (user_email, token_json)
+VALUES (?, ?)
+""", (creds.id_token["email"], creds.to_json()))
+
+db.commit()
+
 
 # ---------- DASHBOARD ----------
 
