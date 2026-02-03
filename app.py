@@ -103,34 +103,25 @@ def authorize():
 
 @app.route("/callback")
 def callback():
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": os.environ["GOOGLE_CLIENT_ID"],
-                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        },
+    flow = Flow.from_client_secrets_file(
+        "credentials.json",
         scopes=SCOPES,
-        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
+        redirect_uri=os.environ.get("REDIRECT_URI"),
     )
 
-    flow.fetch_token(authorization_response=request.url)
-    creds = flow.credentials
+    flow.fetch_token(code=request.args.get("code"))
+    creds = flow.credentials   # ✅ creds is created HERE
 
-    session["credentials"] = creds.to_json()
+    # Save token safely
+    with open("token.json", "w") as f:
+        f.write(creds.to_json())
+
+    # OPTIONAL: get email safely
+    email = creds.id_token.get("email") if creds.id_token else None
+
+    session["user_email"] = email
+
     return redirect("/dashboard")
-    creds = flow.credentials
-db = get_db()
-cursor = db.cursor()
-
-cursor.execute("""
-INSERT OR REPLACE INTO oauth_tokens (user_email, token_json)
-VALUES (?, ?)
-""", (creds.id_token["email"], creds.to_json()))
-
-db.commit()
 
 
 # ---------- DASHBOARD ----------
