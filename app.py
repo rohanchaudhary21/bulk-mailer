@@ -13,7 +13,7 @@ load_dotenv()
 
 # ================= APP SETUP =================
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET", "dev-secret")
+app.secret_key = os.environ.get("SECRET_KEY")
 
 # ================= SCOPES =================
 SCOPES = [
