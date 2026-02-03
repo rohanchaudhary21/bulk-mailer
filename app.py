@@ -139,28 +139,21 @@ def callback():
     flow = Flow.from_client_config(
         {
             "web": {
-                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
         scopes=SCOPES,
-        redirect_uri=os.getenv("REDIRECT_URI")
+        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
     )
 
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
     email = creds.id_token.get("email") if creds.id_token else None
-    session["user_email"] = email
-
-    db = get_db()
-    db.execute(
-        "REPLACE INTO oauth_tokens (user_email, token_json) VALUES (?, ?)",
-        (email, creds.to_json())
-    )
-    db.commit()
+    session["user_email"] = email   # 🔑 THIS is what keeps user logged in
 
     return redirect("/dashboard")
 
@@ -170,6 +163,11 @@ def dashboard():
     if not session.get("user_email"):
         return redirect("/")
     return render_template("dashboard.html")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
 
 @app.route("/send", methods=["POST"])
