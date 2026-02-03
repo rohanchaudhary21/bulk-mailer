@@ -1,7 +1,21 @@
 <!DOCTYPE html>
-<html>
-<body>
-    <h2>Bulk Mailer</h2>
-    <a href="/authorize">Login with Google</a>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BulkMailer – Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+
+  <div class="login-card fade-in">
+    <img src="{{ url_for('static', filename='images/mail.svg') }}" class="logo">
+    <h1>BulkMailer</h1>
+    <p>Send personalized emails. At scale.</p>
+
+    <a href="/authorize" class="google-btn">
+      🚀 Login with Google
+    </a>
+  </div>
+
 </body>
 </html>
