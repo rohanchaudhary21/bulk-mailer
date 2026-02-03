@@ -3,6 +3,7 @@ import os, time, base64, datetime
 import pandas as pd
 import os
 from dotenv import load_dotenv
+import sqlite3
 load_dotenv()
 
 \
@@ -11,6 +12,23 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from apscheduler.schedulers.background import BackgroundScheduler
+
+def get_db():
+    conn = sqlite3.connect("stats.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+    
+def init_db():
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS email_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.commit()
 
 
 app = Flask(__name__)
@@ -107,9 +125,46 @@ def send_email(to, subject, body):
     service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 def send_bulk(recipients, subject, body, delay):
+    db = get_db()
+
     for email in recipients:
-        send_email(email.strip(), subject, body)
+        try:
+            send_email(email, subject, body)
+            db.execute(
+                "INSERT INTO email_logs (email, status) VALUES (?, ?)",
+                (email, "sent")
+            )
+        except Exception:
+            db.execute(
+                "INSERT INTO email_logs (email, status) VALUES (?, ?)",
+                (email, "failed")
+            )
+
+        db.commit()
         time.sleep(delay)
+
+@app.route("/api/stats")
+def stats_api():
+    db = get_db()
+
+    total = db.execute("SELECT COUNT(*) FROM email_logs").fetchone()[0]
+    sent = db.execute("SELECT COUNT(*) FROM email_logs WHERE status='sent'").fetchone()[0]
+    failed = db.execute("SELECT COUNT(*) FROM email_logs WHERE status='failed'").fetchone()[0]
+
+    daily = db.execute("""
+        SELECT DATE(created_at) as date, COUNT(*) as count
+        FROM email_logs
+        GROUP BY DATE(created_at)
+        ORDER BY date
+    """).fetchall()
+
+    return {
+        "total": total,
+        "sent": sent,
+        "failed": failed,
+        "daily": [dict(row) for row in daily]
+    }
+
 
 
 # ---------- SEND ----------
