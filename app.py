@@ -4,9 +4,6 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 import sqlite3
-from db import init_db
-init_db()
-
 load_dotenv()
 
 \
@@ -36,24 +33,6 @@ def get_gmail_service(user_email):
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-def get_db():
-    conn = sqlite3.connect("stats.db")
-    conn.row_factory = sqlite3.Row
-    return conn
-    
-def init_db():
-    db = get_db()
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS email_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            status TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    db.commit()
-
-
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
 
@@ -80,47 +59,44 @@ import os
 
 @app.route("/authorize")
 def authorize():
+    client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
+
     flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": os.environ["GOOGLE_CLIENT_ID"],
-                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        },
+        client_config,
         scopes=SCOPES,
-        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
+        redirect_uri=os.environ["REDIRECT_URI"]
     )
 
     auth_url, _ = flow.authorization_url(
         prompt="consent",
-        access_type="offline",
-        include_granted_scopes="true"
+        access_type="offline"
     )
 
     return redirect(auth_url)
 
 @app.route("/callback")
 def callback():
-    flow = Flow.from_client_secrets_file(
-        "credentials.json",
+    client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
+
+    flow = Flow.from_client_config(
+        client_config,
         scopes=SCOPES,
-        redirect_uri=os.environ.get("REDIRECT_URI"),
+        redirect_uri=os.environ["REDIRECT_URI"]
     )
 
     flow.fetch_token(code=request.args.get("code"))
-    creds = flow.credentials   # ✅ creds is created HERE
+    creds = flow.credentials
 
-    # Save token safely
-    with open("token.json", "w") as f:
-        f.write(creds.to_json())
+    user_email = creds.id_token.get("email")
 
-    # OPTIONAL: get email safely
-    email = creds.id_token.get("email") if creds.id_token else None
+    db = get_db()
+    db.execute(
+        "REPLACE INTO oauth_tokens (user_email, token_json) VALUES (?, ?)",
+        (user_email, creds.to_json())
+    )
+    db.commit()
 
-    session["user_email"] = email
-
+    session["user_email"] = user_email
     return redirect("/dashboard")
 
 
