@@ -12,7 +12,6 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from apscheduler.schedulers.background import BackgroundScheduler
 
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
@@ -35,31 +34,52 @@ def home():
     return render_template("login.html")
 
 
+from google_auth_oauthlib.flow import Flow
+import os
+
 @app.route("/authorize")
 def authorize():
-    flow = Flow.from_client_secrets_file(
-        "credentials.json",
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
         scopes=SCOPES,
-        redirect_uri=os.getenv("REDIRECT_URI"),
+        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
     )
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-    return redirect(auth_url)
 
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+        include_granted_scopes="true"
+    )
+
+    return redirect(auth_url)
 
 @app.route("/callback")
 def callback():
-    flow = Flow.from_client_secrets_file(
-        "credentials.json",
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
         scopes=SCOPES,
-        redirect_uri=os.getenv("REDIRECT_URI"),
+        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
     )
-    flow.fetch_token(code=request.args.get("code"))
 
-    with open("token.json", "w") as f:
-        f.write(flow.credentials.to_json())
+    flow.fetch_token(authorization_response=request.url)
+    creds = flow.credentials
 
+    session["credentials"] = creds.to_json()
     return redirect("/dashboard")
-
 
 # ---------- DASHBOARD ----------
 
