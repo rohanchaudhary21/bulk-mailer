@@ -119,6 +119,16 @@ def send_bulk(user_email, recipients, subject, body, delay):
         time.sleep(delay)
 
 # ================= ROUTES =================
+import requests
+
+def get_user_email(creds):
+    resp = requests.get(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"Authorization": f"Bearer {creds.token}"}
+    )
+    resp.raise_for_status()
+    return resp.json()["email"]
+
 
 @app.route("/")
 def home():
@@ -147,19 +157,30 @@ def authorize():
 @app.route("/callback")
 def callback():
     flow = Flow.from_client_config(
-        CLIENT_CONFIG,
+        {
+            "web": {
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
         scopes=SCOPES,
-        redirect_uri=os.environ["REDIRECT_URI"]
+        redirect_uri=os.environ["REDIRECT_URI"],
     )
 
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
-    session["user_email"] = creds.id_token.get("email")
-
-    # Save token per user (safe for now)
+    # ✅ STEP 1: store tokens only
     with open("token.json", "w") as f:
         f.write(creds.to_json())
+
+    # ✅ STEP 2: fetch email correctly
+    email = get_user_email(creds)
+
+    # ✅ STEP 3: save email in session
+    session["user_email"] = email
 
     return redirect("/dashboard")
 
