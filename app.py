@@ -1,136 +1,93 @@
 from flask import Flask, render_template, request, redirect, session
-import os, time, base64, datetime
+import os, time, base64, datetime, json, sqlite3
 import pandas as pd
-import os
 from dotenv import load_dotenv
-import sqlite3
-load_dotenv()
-
-\
 from email.mime.text import MIMEText
+from apscheduler.schedulers.background import BackgroundScheduler
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-from google.oauth2.credentials import Credentials
-from db import get_db
-import json
 
-def get_gmail_service(user_email):
-    db = get_db()
-    cursor = db.cursor()
+# ================= LOAD ENV =================
+load_dotenv()
 
-    cursor.execute(
-        "SELECT token_json FROM oauth_tokens WHERE user_email=?",
-        (user_email,)
-    )
-    row = cursor.fetchone()
-
-    if not row:
-        raise Exception("User not authenticated")
-
-    creds = Credentials.from_authorized_user_info(json.loads(row[0]))
-    return build("gmail", "v1", credentials=creds)
-
-from apscheduler.schedulers.background import BackgroundScheduler
-
+# ================= APP SETUP =================
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET")
+app.secret_key = os.getenv("FLASK_SECRET", "dev-secret")
 
-
+# ================= SCOPES =================
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
+# ================= DB =================
+DB_PATH = "stats.db"
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS email_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+            user_email TEXT PRIMARY KEY,
+            token_json TEXT
+        )
+    """)
+    db.commit()
+
+init_db()
+
+# ================= SCHEDULER =================
 scheduler = BackgroundScheduler()
 scheduler.start()
 
-# ---------- AUTH ----------
-
-@app.route("/")
-def home():
-    if os.path.exists("token.json"):
-        return redirect("/dashboard")
-    return render_template("login.html")
-
-
-from google_auth_oauthlib.flow import Flow
-import os
-
-@app.route("/authorize")
-def authorize():
-    client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
-
-    flow = Flow.from_client_config(
-        client_config,
-        scopes=SCOPES,
-        redirect_uri=os.environ["REDIRECT_URI"]
-    )
-
-    auth_url, _ = flow.authorization_url(
-        prompt="consent",
-        access_type="offline"
-    )
-
-    return redirect(auth_url)
-
-@app.route("/callback")
-def callback():
-    client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
-
-    flow = Flow.from_client_config(
-        client_config,
-        scopes=SCOPES,
-        redirect_uri=os.environ["REDIRECT_URI"]
-    )
-
-    flow.fetch_token(code=request.args.get("code"))
-    creds = flow.credentials
-
-    user_email = creds.id_token.get("email")
-
-    db = get_db()
-    db.execute(
-        "REPLACE INTO oauth_tokens (user_email, token_json) VALUES (?, ?)",
-        (user_email, creds.to_json())
-    )
-    db.commit()
-
-    session["user_email"] = user_email
-    return redirect("/dashboard")
-
-
-# ---------- DASHBOARD ----------
-
-@app.route("/dashboard")
-def dashboard():
-    return render_template("dashboard.html")
-
-
-# ---------- HELPERS ----------
+# ================= HELPERS =================
 
 def read_sheet(sheet_url):
     sheet_id = sheet_url.split("/d/")[1].split("/")[0]
     csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     return pd.read_csv(csv_url)
 
-def send_email(to, subject, body):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    service = build("gmail", "v1", credentials=creds)
 
-    msg = MIMEText(body)
-    msg["to"] = to
-    msg["subject"] = subject
-
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    service.users().messages().send(userId="me", body={"raw": raw}).execute()
-
-def send_bulk(recipients, subject, body, delay):
+def get_gmail_service(user_email):
     db = get_db()
+    row = db.execute(
+        "SELECT token_json FROM oauth_tokens WHERE user_email=?",
+        (user_email,)
+    ).fetchone()
+
+    if not row:
+        raise Exception("User not authenticated")
+
+    creds = Credentials.from_authorized_user_info(json.loads(row[0]), SCOPES)
+    return build("gmail", "v1", credentials=creds)
+
+
+def send_bulk(user_email, recipients, subject, body, delay):
+    db = get_db()
+    service = get_gmail_service(user_email)
 
     for email in recipients:
         try:
-            send_email(email, subject, body)
+            msg = MIMEText(body)
+            msg["to"] = email
+            msg["subject"] = subject
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
             db.execute(
                 "INSERT INTO email_logs (email, status) VALUES (?, ?)",
                 (email, "sent")
@@ -143,6 +100,124 @@ def send_bulk(recipients, subject, body, delay):
 
         db.commit()
         time.sleep(delay)
+
+# ================= ROUTES =================
+
+@app.route("/")
+def home():
+    if session.get("user_email"):
+        return redirect("/dashboard")
+    return render_template("login.html")
+
+
+@app.route("/authorize")
+def authorize():
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
+        scopes=SCOPES,
+        redirect_uri=os.getenv("REDIRECT_URI")
+    )
+
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+        include_granted_scopes="true"
+    )
+
+    return redirect(auth_url)
+
+
+@app.route("/callback")
+def callback():
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
+        scopes=SCOPES,
+        redirect_uri=os.getenv("REDIRECT_URI")
+    )
+
+    flow.fetch_token(code=request.args.get("code"))
+    creds = flow.credentials
+
+    email = creds.id_token.get("email") if creds.id_token else None
+    session["user_email"] = email
+
+    db = get_db()
+    db.execute(
+        "REPLACE INTO oauth_tokens (user_email, token_json) VALUES (?, ?)",
+        (email, creds.to_json())
+    )
+    db.commit()
+
+    return redirect("/dashboard")
+
+
+@app.route("/dashboard")
+def dashboard():
+    if not session.get("user_email"):
+        return redirect("/")
+    return render_template("dashboard.html")
+
+
+@app.route("/send", methods=["POST"])
+def send():
+    user_email = session.get("user_email")
+    if not user_email:
+        return redirect("/")
+
+    send_type = request.form.get("send_type")
+    subject = request.form.get("subject")
+    body = request.form.get("body")
+    delay = int(request.form.get("delay", 10))
+
+    manual = request.form.get("recipients")
+    sheet = request.form.get("sheet")
+
+    recipients = []
+
+    if manual and manual.strip():
+        recipients = [e.strip() for e in manual.split(",") if e.strip()]
+    elif sheet and sheet.strip():
+        df = read_sheet(sheet)
+        if "email" not in df.columns:
+            return "❌ Sheet must contain email column"
+        recipients = df["email"].dropna().tolist()
+    else:
+        return "❌ No recipients provided"
+
+    if send_type == "now":
+        send_bulk(user_email, recipients, subject, body, delay)
+        return "✅ Emails sent successfully"
+
+    time_str = request.form.get("time")
+    if not time_str:
+        return "❌ Select date & time"
+
+    send_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M")
+
+    scheduler.add_job(
+        send_bulk,
+        "date",
+        run_date=send_time,
+        args=[user_email, recipients, subject, body, delay],
+        id=f"job_{time.time()}"
+    )
+
+    return "⏰ Emails scheduled"
+
 
 @app.route("/api/stats")
 def stats_api():
@@ -166,51 +241,10 @@ def stats_api():
         "daily": [dict(row) for row in daily]
     }
 
+
 @app.route("/stats")
 def stats():
     return render_template("stats.html")
-
-
-# ---------- SEND ----------
-
-@app.route("/send", methods=["POST"])
-def send():
-    send_type = request.form.get("send_type")
-    subject = request.form.get("subject")
-    body = request.form.get("body")
-    delay = int(request.form.get("delay", 10))
-
-    manual = request.form.get("recipients")
-    sheet = request.form.get("sheet")
-
-    recipients = []
-
-    if manual:
-        recipients = manual.split(",")
-
-    elif sheet:
-        df = read_sheet(sheet)
-        recipients = df["email"].tolist()
-
-    else:
-        return "❌ No recipients provided"
-
-    if send_type == "now":
-        send_bulk(recipients, subject, body, delay)
-        return "✅ Emails sent successfully!"
-
-    # schedule
-    time_str = request.form.get("time")
-    send_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M")
-
-    scheduler.add_job(
-        send_bulk,
-        "date",
-        run_date=send_time,
-        args=[recipients, subject, body, delay]
-    )
-
-    return "⏰ Emails scheduled successfully!"
 
 
 if __name__ == "__main__":
