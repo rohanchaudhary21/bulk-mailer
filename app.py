@@ -13,7 +13,15 @@ load_dotenv()
 
 # ================= APP SETUP =================
 app = Flask(__name__)
+
 app.secret_key = os.environ.get("SECRET_KEY")
+
+# 🔥 REQUIRED FOR RENDER (HTTPS)
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 
 # ================= SCOPES =================
 SCOPES = [
@@ -136,24 +144,19 @@ def authorize():
 
 @app.route("/callback")
 def callback():
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": os.environ["GOOGLE_CLIENT_ID"],
-                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        },
+    flow = Flow.from_client_secrets_file(
+        "credentials.json",
         scopes=SCOPES,
-        redirect_uri="https://bulk-mailer-uiwh.onrender.com/callback"
+        redirect_uri=os.environ["REDIRECT_URI"],
     )
 
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
-    email = creds.id_token.get("email") if creds.id_token else None
-    session["user_email"] = email   # 🔑 THIS is what keeps user logged in
+    email = creds.id_token.get("email")
+
+    session["user_email"] = email
+    session.modified = True
 
     return redirect("/dashboard")
 
@@ -239,11 +242,9 @@ def stats_api():
         "daily": [dict(row) for row in daily]
     }
 
-
 @app.route("/stats")
 def stats():
     return render_template("stats.html")
-
 
 if __name__ == "__main__":
     app.run(debug=True)
