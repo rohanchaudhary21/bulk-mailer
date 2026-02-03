@@ -130,21 +130,28 @@ def home():
         return redirect("/dashboard")
     return render_template("login.html")
 
-
 @app.route("/authorize")
 def authorize():
     flow = Flow.from_client_config(
-        CLIENT_CONFIG,
-        scopes=SCOPES,
-        redirect_uri=os.environ["REDIRECT_URI"]
+        {
+            "web": {
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
+        scopes=[
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/spreadsheets.readonly",
+        ],
+        redirect_uri=os.environ["REDIRECT_URI"],
     )
 
     auth_url, _ = flow.authorization_url(
-        prompt="consent",
         access_type="offline",
-        include_granted_scopes="true"
+        prompt="consent",
     )
-
     return redirect(auth_url)
 
 
@@ -159,7 +166,10 @@ def callback():
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=SCOPES,
+        scopes=[
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/spreadsheets.readonly",
+        ],
         redirect_uri=os.environ["REDIRECT_URI"],
     )
 
@@ -169,15 +179,14 @@ def callback():
     with open("token.json", "w") as f:
         f.write(creds.to_json())
 
+    session.clear()
     session["logged_in"] = True
+
     return redirect("/dashboard")
-
-
-
 
 @app.route("/dashboard")
 def dashboard():
-    if not session.get("user_email"):
+    if not session.get("logged_in"):
         return redirect("/")
     return render_template("dashboard.html")
 
