@@ -8,6 +8,15 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
+CLIENT_CONFIG = {
+    "web": {
+        "client_id": os.environ["GOOGLE_CLIENT_ID"],
+        "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+}
+
 # ================= LOAD ENV =================
 load_dotenv()
 
@@ -121,16 +130,9 @@ def home():
 @app.route("/authorize")
 def authorize():
     flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        },
+        CLIENT_CONFIG,
         scopes=SCOPES,
-        redirect_uri=os.getenv("REDIRECT_URI")
+        redirect_uri=os.environ["REDIRECT_URI"]
     )
 
     auth_url, _ = flow.authorization_url(
@@ -144,19 +146,20 @@ def authorize():
 
 @app.route("/callback")
 def callback():
-    flow = Flow.from_client_secrets_file(
-        "credentials.json",
+    flow = Flow.from_client_config(
+        CLIENT_CONFIG,
         scopes=SCOPES,
-        redirect_uri=os.environ["REDIRECT_URI"],
+        redirect_uri=os.environ["REDIRECT_URI"]
     )
 
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
-    email = creds.id_token.get("email")
+    session["user_email"] = creds.id_token.get("email")
 
-    session["user_email"] = email
-    session.modified = True
+    # Save token per user (safe for now)
+    with open("token.json", "w") as f:
+        f.write(creds.to_json())
 
     return redirect("/dashboard")
 
