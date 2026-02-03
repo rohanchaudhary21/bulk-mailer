@@ -142,10 +142,7 @@ def authorize():
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=SCOPES=[
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-        ],
+        scopes=SCOPES,
         redirect_uri=os.environ["REDIRECT_URI"],
     )
 
@@ -237,13 +234,13 @@ def send():
 
     if send_type == "now":
         send_bulk(
-    session["user_email"],
-    recipients,
-    subject,
-    body,
-    delay
-)
-    return "✅ Emails sent successfully!"
+            session["user_email"],
+            recipients,
+            subject,
+            body,
+            delay
+        )
+        return "✅ Emails sent successfully!"
 
     time_str = request.form.get("time")
     send_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M")
@@ -285,4 +282,5 @@ def stats():
     return render_template("stats.html")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
