@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Email Stats</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<h2>📊 Email Statistics</h2>
+
+<div class="cards">
+  <div class="card">Total<br><b id="total">0</b></div>
+  <div class="card">Sent<br><b id="sent">0</b></div>
+  <div class="card">Failed<br><b id="failed">0</b></div>
+</div>
+
+<canvas id="chart" height="100"></canvas>
+
+<script src="{{ url_for('static', filename='js/stats.js') }}"></script>
+</body>
+</html>
