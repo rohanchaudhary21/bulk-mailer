@@ -34,6 +34,9 @@ app.config.update(
 
 # ================= SCOPES =================
 SCOPES = [
+    "openid",
+    "email",
+    "profile",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
@@ -121,15 +124,6 @@ def send_bulk(user_email, recipients, subject, body, delay):
 # ================= ROUTES =================
 import requests
 
-def get_user_email(creds):
-    resp = requests.get(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {creds.token}"}
-    )
-    resp.raise_for_status()
-    return resp.json()["email"]
-
-
 @app.route("/")
 def home():
     if session.get("user_email"):
@@ -172,17 +166,13 @@ def callback():
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
-    # ✅ STEP 1: store tokens only
     with open("token.json", "w") as f:
         f.write(creds.to_json())
 
-    # ✅ STEP 2: fetch email correctly
-    email = get_user_email(creds)
-
-    # ✅ STEP 3: save email in session
-    session["user_email"] = email
-
+    session["logged_in"] = True
     return redirect("/dashboard")
+
+
 
 
 @app.route("/dashboard")
@@ -199,8 +189,7 @@ def logout():
 
 @app.route("/send", methods=["POST"])
 def send():
-    user_email = session.get("user_email")
-    if not user_email:
+    if not session.get("logged_in"):
         return redirect("/")
 
     send_type = request.form.get("send_type")
@@ -213,35 +202,29 @@ def send():
 
     recipients = []
 
-    if manual and manual.strip():
+    if manual:
         recipients = [e.strip() for e in manual.split(",") if e.strip()]
-    elif sheet and sheet.strip():
+    elif sheet:
         df = read_sheet(sheet)
-        if "email" not in df.columns:
-            return "❌ Sheet must contain email column"
         recipients = df["email"].dropna().tolist()
     else:
         return "❌ No recipients provided"
 
     if send_type == "now":
-        send_bulk(user_email, recipients, subject, body, delay)
-        return "✅ Emails sent successfully"
+        send_bulk(recipients, subject, body, delay)
+        return "✅ Emails sent successfully!"
 
     time_str = request.form.get("time")
-    if not time_str:
-        return "❌ Select date & time"
-
     send_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M")
 
     scheduler.add_job(
         send_bulk,
         "date",
         run_date=send_time,
-        args=[user_email, recipients, subject, body, delay],
-        id=f"job_{time.time()}"
+        args=[recipients, subject, body, delay],
     )
 
-    return "⏰ Emails scheduled"
+    return "⏰ Emails scheduled successfully!"
 
 
 @app.route("/api/stats")
