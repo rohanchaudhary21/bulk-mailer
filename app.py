@@ -23,7 +23,8 @@ load_dotenv()
 # ================= APP SETUP =================
 app = Flask(__name__)
 
-app.secret_key = os.environ.get("SECRET_KEY")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "dev-secret-key-change-me"
+
 
 # 🔥 REQUIRED FOR RENDER (HTTPS)
 app.config.update(
@@ -141,7 +142,7 @@ def authorize():
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=[
+        scopes=SCOPES=[
             "https://www.googleapis.com/auth/gmail.send",
             "https://www.googleapis.com/auth/spreadsheets.readonly",
         ],
@@ -166,23 +167,38 @@ def callback():
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=[
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-        ],
+        scopes=SCOPES,
         redirect_uri=os.environ["REDIRECT_URI"],
     )
 
     flow.fetch_token(code=request.args.get("code"))
     creds = flow.credentials
 
-    with open("token.json", "w") as f:
-        f.write(creds.to_json())
+    # ✅ Get user email safely
+    userinfo = requests.get(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"Authorization": f"Bearer {creds.token}"}
+    ).json()
 
+    user_email = userinfo.get("email")
+    if not user_email:
+        return "Failed to fetch user email", 400
+
+    # ✅ Store token in DB
+    db = get_db()
+    db.execute(
+        "REPLACE INTO oauth_tokens (user_email, token_json) VALUES (?, ?)",
+        (user_email, creds.to_json())
+    )
+    db.commit()
+
+    # ✅ Set session
     session.clear()
     session["logged_in"] = True
+    session["user_email"] = user_email
 
     return redirect("/dashboard")
+
 
 @app.route("/dashboard")
 def dashboard():
@@ -220,8 +236,14 @@ def send():
         return "❌ No recipients provided"
 
     if send_type == "now":
-        send_bulk(recipients, subject, body, delay)
-        return "✅ Emails sent successfully!"
+        send_bulk(
+    session["user_email"],
+    recipients,
+    subject,
+    body,
+    delay
+)
+    return "✅ Emails sent successfully!"
 
     time_str = request.form.get("time")
     send_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M")
