@@ -236,21 +236,40 @@ def send():
 
     if manual:
         recipients = [e.strip() for e in manual.split(",") if e.strip()]
+        print(f"Manual recipients: {recipients}")
     elif sheet:
-        df = read_sheet(sheet)
-        recipients = df["email"].dropna().tolist()
+        print(f"Reading sheet: {sheet}")
+        try:
+            df = read_sheet(sheet)
+            print(f"Sheet columns: {df.columns.tolist()}")
+            recipients = df["email"].dropna().tolist()
+            print(f"Found {len(recipients)} recipients from sheet")
+        except Exception as e:
+            print(f"ERROR reading sheet: {e}")
+            return f"❌ Error reading sheet: {e}"
     else:
         return "❌ No recipients provided"
 
+    if not recipients:
+        return "❌ No valid email addresses found"
+
+    print(f"Total recipients: {len(recipients)}")
+    print(f"Subject: {subject}")
+    print(f"Send type: {send_type}")
+
     if send_type == "now":
-        send_bulk(
-            session["user_email"],
-            recipients,
-            subject,
-            body,
-            delay
-        )
-        return "✅ Emails sent successfully!"
+        try:
+            send_bulk(
+                session["user_email"],
+                recipients,
+                subject,
+                body,
+                delay
+            )
+            return "✅ Emails sent successfully!"
+        except Exception as e:
+            print(f"ERROR in send_bulk: {e}")
+            return f"❌ Error sending emails: {e}"
 
     time_str = request.form.get("time")
     # Parse the time and make it timezone-aware (IST)
@@ -294,6 +313,24 @@ def stats_api():
 @app.route("/stats")
 def stats():
     return render_template("stats.html")
+
+@app.route("/debug/jobs")
+def debug_jobs():
+    """Debug endpoint to see scheduled jobs"""
+    jobs = scheduler.get_jobs()
+    job_info = []
+    for job in jobs:
+        job_info.append({
+            "id": job.id,
+            "next_run": str(job.next_run_time),
+            "func": job.func.__name__
+        })
+    return {
+        "scheduled_jobs": job_info,
+        "scheduler_running": scheduler.running,
+        "current_time_utc": str(datetime.datetime.now(pytz.UTC)),
+        "current_time_ist": str(datetime.datetime.now(IST))
+    }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
