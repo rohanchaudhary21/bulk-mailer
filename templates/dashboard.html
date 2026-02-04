@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BulkMailer Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Quill Rich Text Editor -->
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Google Sans', 'Roboto', sans-serif;
+      background: #f6f8fc;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+    }
+    
+    .header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+      font-weight: 400;
+      color: #202124;
+    }
+    
+    .compose-field {
+      padding: 12px 24px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+    }
+    
+    .compose-field label {
+      width: 80px;
+      color: #5f6368;
+      font-size: 14px;
+    }
+    
+    .compose-field input[type="text"],
+    .compose-field textarea {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+    }
+    
+    .recipient-count {
+      background: #e8f0fe;
+      color: #1967d2;
+      padding: 4px 12px;
+      border-radius: 16px;
+      font-size: 13px;
+      margin-left: 8px;
+    }
+    
+    .editor-container {
+      padding: 24px;
+      min-height: 300px;
+    }
+    
+    #editor {
+      min-height: 250px;
+      border: none;
+      font-size: 14px;
+    }
+    
+    .ql-toolbar {
+      border: none !important;
+      border-bottom: 1px solid #e0e0e0 !important;
+      padding: 8px 24px !important;
+    }
+    
+    .ql-container {
+      border: none !important;
+      font-family: inherit;
+    }
+    
+    .attachment-area {
+      padding: 12px 24px;
+      border-top: 1px solid #e0e0e0;
+    }
+    
+    .attachment-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #f1f3f4;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #5f6368;
+    }
+    
+    .attachment-button:hover {
+      background: #e8eaed;
+    }
+    
+    .attachment-list {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    
+    .attachment-item {
+      background: #e8f0fe;
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .attachment-item button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      color: #5f6368;
+    }
+    
+    .options-bar {
+      padding: 16px 24px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    
+    .option-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .option-group label {
+      font-size: 13px;
+      color: #5f6368;
+    }
+    
+    .option-group input[type="number"],
+    .option-group input[type="datetime-local"] {
+      padding: 6px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    
+    .actions {
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .send-button {
+      background: #1a73e8;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .send-button:hover {
+      background: #1765cc;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    .schedule-button {
+      background: white;
+      color: #5f6368;
+      border: 1px solid #dadce0;
+      padding: 10px 24px;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    
+    .schedule-button:hover {
+      background: #f8f9fa;
+    }
+    
+    .info-box {
+      margin: 16px 24px;
+      padding: 12px;
+      background: #e8f0fe;
+      border-left: 4px solid #1a73e8;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #174ea6;
+    }
+    
+    .variable-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    
+    .chip {
+      background: #e8f0fe;
+      color: #1a73e8;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-family: monospace;
+      cursor: pointer;
+      border: 1px solid #d2e3fc;
+    }
+    
+    .chip:hover {
+      background: #d2e3fc;
+    }
+    
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>✉️ New Bulk Email</h1>
+  </div>
+  
+  <form id="emailForm" method="POST" action="/send" enctype="multipart/form-data">
+    
+    <!-- Recipients -->
+    <div class="compose-field">
+      <label>To</label>
+      <input type="text" name="recipients" id="recipients" placeholder="Enter emails (comma separated) or use Google Sheet URL below">
+      <span class="recipient-count hidden" id="recipientCount">0 recipients</span>
+    </div>
+    
+    <!-- Google Sheet -->
+    <div class="compose-field">
+      <label>Sheet URL</label>
+      <input type="text" name="sheet" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+    </div>
+    
+    <!-- Subject -->
+    <div class="compose-field">
+      <label>Subject</label>
+      <input type="text" name="subject" id="subject" placeholder="Email subject" required>
+    </div>
+    
+    <!-- Variable Chips -->
+    <div class="info-box">
+      <strong>💡 Personalize your emails:</strong> Click to insert variables
+      <div class="variable-chips">
+        <span class="chip" onclick="insertToSubject('{{ name }}')">{{ name }}</span>
+        <span class="chip" onclick="insertToSubject('{{ company }}')">{{ company }}</span>
+        <span class="chip" onclick="insertToSubject('{{ location }}')">{{ location }}</span>
+        <span class="chip" onclick="insertToSubject('{{ email }}')">{{ email }}</span>
+      </div>
+    </div>
+    
+    <!-- Rich Text Editor -->
+    <div class="ql-toolbar-container">
+      <div id="toolbar">
+        <span class="ql-formats">
+          <button class="ql-bold"></button>
+          <button class="ql-italic"></button>
+          <button class="ql-underline"></button>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-list" value="ordered"></button>
+          <button class="ql-list" value="bullet"></button>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-link"></button>
+        </span>
+        <span class="ql-formats">
+          <select class="ql-align"></select>
+        </span>
+        <span class="ql-formats">
+          <button class="ql-clean"></button>
+        </span>
+      </div>
+    </div>
+    
+    <div class="editor-container">
+      <div id="editor"></div>
+    </div>
+    
+    <!-- Hidden input for body content -->
+    <input type="hidden" name="body" id="bodyContent">
+    
+    <!-- Variable Chips for Body -->
+    <div style="padding: 0 24px 16px;">
+      <div class="variable-chips">
+        <span class="chip" onclick="insertToEditor('{{ name }}')">{{ name }}</span>
+        <span class="chip" onclick="insertToEditor('{{ company }}')">{{ company }}</span>
+        <span class="chip" onclick="insertToEditor('{{ location }}')">{{ location }}</span>
+        <span class="chip" onclick="insertToEditor('{{ email }}')">{{ email }}</span>
+      </div>
+    </div>
+    
+    <!-- Attachments -->
+    <div class="attachment-area">
+      <label for="fileInput" class="attachment-button">
+        📎 Attach Files
+      </label>
+      <input type="file" id="fileInput" name="attachments" multiple style="display: none;">
+      <div class="attachment-list" id="attachmentList"></div>
+    </div>
+    
+    <!-- Options -->
+    <div class="options-bar">
+      <div class="option-group">
+        <label>Delay:</label>
+        <input type="number" name="delay" value="10" min="1" max="60"> seconds
+      </div>
+      
+      <div class="option-group hidden" id="scheduleGroup">
+        <label>Schedule for:</label>
+        <input type="datetime-local" name="time" id="scheduleTime">
+      </div>
+    </div>
+    
+    <!-- Actions -->
+    <div class="actions">
+      <div>
+        <button type="submit" class="send-button" name="send_type" value="now">
+          <span>➤</span> Send Now
+        </button>
+        <button type="button" class="schedule-button" onclick="toggleSchedule()">
+          🕐 Schedule Send
+        </button>
+      </div>
+      <a href="/logout" style="color: #5f6368; font-size: 14px; text-decoration: none;">Logout</a>
+    </div>
+    
+  </form>
+</div>
+
+<script>
+  // Initialize Quill editor
+  var quill = new Quill('#editor', {
+    theme: 'snow',
+    modules: {
+      toolbar: '#toolbar'
+    },
+    placeholder: 'Compose your email...'
+  });
+  
+  // Update hidden body field on form submit
+  document.getElementById('emailForm').addEventListener('submit', function() {
+    document.getElementById('bodyContent').value = quill.root.innerHTML;
+  });
+  
+  // Insert variable into subject
+  function insertToSubject(variable) {
+    const field = document.getElementById('subject');
+    const start = field.selectionStart;
+    const end = field.selectionEnd;
+    const text = field.value;
+    field.value = text.substring(0, start) + variable + text.substring(end);
+    field.focus();
+    field.selectionStart = field.selectionEnd = start + variable.length;
+  }
+  
+  // Insert variable into editor
+  function insertToEditor(variable) {
+    const range = quill.getSelection(true);
+    quill.insertText(range.index, variable);
+    quill.setSelection(range.index + variable.length);
+  }
+  
+  // File attachment handling
+  const fileInput = document.getElementById('fileInput');
+  const attachmentList = document.getElementById('attachmentList');
+  
+  fileInput.addEventListener('change', function() {
+    attachmentList.innerHTML = '';
+    Array.from(this.files).forEach((file, index) => {
+      const item = document.createElement('div');
+      item.className = 'attachment-item';
+      item.innerHTML = `
+        📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)
+        <button type="button" onclick="removeAttachment(${index})">×</button>
+      `;
+      attachmentList.appendChild(item);
+    });
+  });
+  
+  function removeAttachment(index) {
+    const dt = new DataTransfer();
+    const files = fileInput.files;
+    
+    for (let i = 0; i < files.length; i++) {
+      if (i !== index) dt.items.add(files[i]);
+    }
+    
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+  }
+  
+  // Recipient count
+  function updateRecipientCount() {
+    const manualInput = document.getElementById('recipients').value;
+    const sheetInput = document.getElementById('sheetUrl').value;
+    const countElement = document.getElementById('recipientCount');
+    
+    if (manualInput) {
+      const count = manualInput.split(',').filter(e => e.trim()).length;
+      countElement.textContent = `${count} recipient${count !== 1 ? 's' : ''}`;
+      countElement.classList.remove('hidden');
+    } else if (sheetInput) {
+      countElement.textContent = 'From Google Sheet';
+      countElement.classList.remove('hidden');
+    } else {
+      countElement.classList.add('hidden');
+    }
+  }
+  
+  document.getElementById('recipients').addEventListener('input', updateRecipientCount);
+  document.getElementById('sheetUrl').addEventListener('input', updateRecipientCount);
+  
+  // Schedule toggle
+  let scheduleMode = false;
+  function toggleSchedule() {
+    scheduleMode = !scheduleMode;
+    const scheduleGroup = document.getElementById('scheduleGroup');
+    const sendButton = document.querySelector('.send-button');
+    
+    if (scheduleMode) {
+      scheduleGroup.classList.remove('hidden');
+      sendButton.setAttribute('name', 'send_type');
+      sendButton.setAttribute('value', 'schedule');
+      sendButton.innerHTML = '<span>🕐</span> Schedule';
+      document.getElementById('scheduleTime').required = true;
+    } else {
+      scheduleGroup.classList.add('hidden');
+      sendButton.setAttribute('value', 'now');
+      sendButton.innerHTML = '<span>➤</span> Send Now';
+      document.getElementById('scheduleTime').required = false;
+    }
+  }
+</script>
+
+</body>
+</html>
