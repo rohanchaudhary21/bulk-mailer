@@ -243,7 +243,7 @@
 
 <div class="container">
   <div class="header">
-    <h1>✉️ BulkMailer</h1>
+    <h1>✉️ New Bulk Email</h1>
   </div>
   
   <form id="emailForm" method="POST" action="/send" enctype="multipart/form-data">
@@ -259,6 +259,15 @@
     <div class="compose-field">
       <label>Sheet URL</label>
       <input type="text" name="sheet" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+      <button type="button" id="detectColumns" class="attachment-button" style="margin-left: 8px;">
+        🔍 Detect Columns
+      </button>
+    </div>
+    
+    <!-- Sheet Info -->
+    <div id="sheetInfo" class="info-box" style="display: none; margin: 16px 24px; background: #e8f5e9; border-color: #4caf50;">
+      <strong>✅ Sheet Detected:</strong>
+      <div id="sheetDetails"></div>
     </div>
     
     <!-- Subject -->
@@ -267,15 +276,10 @@
       <input type="text" name="subject" id="subject" placeholder="Email subject" required>
     </div>
     
-    <!-- Variable Chips -->
-    <div class="info-box">
-      <strong>💡 Personalize your emails:</strong> Click to insert variables
-      <div class="variable-chips">
-        <span class="chip" onclick="insertToSubject('{{ name }}')">{{ name }}</span>
-        <span class="chip" onclick="insertToSubject('{{ company }}')">{{ company }}</span>
-        <span class="chip" onclick="insertToSubject('{{ location }}')">{{ location }}</span>
-        <span class="chip" onclick="insertToSubject('{{ email }}')">{{ email }}</span>
-      </div>
+    <!-- Variable Chips - Dynamic -->
+    <div class="info-box" id="variableInfo" style="display: none;">
+      <strong>💡 Personalize your emails:</strong> Click to insert variables from your sheet
+      <div class="variable-chips" id="subjectChips"></div>
     </div>
     
     <!-- Rich Text Editor -->
@@ -309,14 +313,9 @@
     <!-- Hidden input for body content -->
     <input type="hidden" name="body" id="bodyContent">
     
-    <!-- Variable Chips for Body -->
-    <div style="padding: 0 24px 16px;">
-      <div class="variable-chips">
-        <span class="chip" onclick="insertToEditor('{{ name }}')">{{ name }}</span>
-        <span class="chip" onclick="insertToEditor('{{ company }}')">{{ company }}</span>
-        <span class="chip" onclick="insertToEditor('{{ location }}')">{{ location }}</span>
-        <span class="chip" onclick="insertToEditor('{{ email }}')">{{ email }}</span>
-      </div>
+    <!-- Variable Chips for Body - Dynamic -->
+    <div style="padding: 0 24px 16px; display: none;" id="bodyChipsContainer">
+      <div class="variable-chips" id="bodyChips"></div>
     </div>
     
     <!-- Attachments -->
@@ -439,6 +438,113 @@
   
   document.getElementById('recipients').addEventListener('input', updateRecipientCount);
   document.getElementById('sheetUrl').addEventListener('input', updateRecipientCount);
+  
+  // Detect columns from Google Sheet
+  let detectedColumns = [];
+  
+  document.getElementById('detectColumns').addEventListener('click', async function() {
+    const sheetUrl = document.getElementById('sheetUrl').value;
+    if (!sheetUrl) {
+      alert('Please enter a Google Sheet URL first');
+      return;
+    }
+    
+    this.textContent = '⏳ Loading...';
+    this.disabled = true;
+    
+    try {
+      const response = await fetch('/api/sheet-columns', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sheet_url: sheetUrl })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        detectedColumns = data.columns;
+        
+        // Show sheet info
+        const sheetInfo = document.getElementById('sheetInfo');
+        const sheetDetails = document.getElementById('sheetDetails');
+        
+        if (data.has_email) {
+          sheetDetails.innerHTML = `
+            📊 Found ${data.total_rows} rows<br>
+            📋 Columns detected: ${data.columns.join(', ')}<br>
+            ✉️ Email column: Found
+          `;
+          sheetInfo.style.display = 'block';
+          
+          // Update variable chips
+          updateVariableChips(data.columns);
+          
+          // Update recipient count
+          document.getElementById('recipientCount').textContent = `${data.total_rows} recipients`;
+          document.getElementById('recipientCount').classList.remove('hidden');
+        } else {
+          alert('❌ Sheet must have an "email" column');
+        }
+      } else {
+        alert('Error: ' + data.error);
+      }
+    } catch (error) {
+      alert('Failed to load sheet: ' + error.message);
+    } finally {
+      this.textContent = '🔍 Detect Columns';
+      this.disabled = false;
+    }
+  });
+  
+  // Update variable chips with detected columns
+  function updateVariableChips(columns) {
+    const subjectChips = document.getElementById('subjectChips');
+    const bodyChips = document.getElementById('bodyChips');
+    
+    // Clear existing chips
+    subjectChips.innerHTML = '';
+    bodyChips.innerHTML = '';
+    
+    // Add chips for each column
+    columns.forEach(col => {
+      const variable = `{{ '{{' }} ${col} {{ '}}' }}`;
+      
+      // Subject chip
+      const subjectChip = document.createElement('span');
+      subjectChip.className = 'chip';
+      subjectChip.textContent = variable;
+      subjectChip.onclick = () => insertToSubject(variable);
+      subjectChips.appendChild(subjectChip);
+      
+      // Body chip
+      const bodyChip = document.createElement('span');
+      bodyChip.className = 'chip';
+      bodyChip.textContent = variable;
+      bodyChip.onclick = () => insertToEditor(variable);
+      bodyChips.appendChild(bodyChip);
+    });
+    
+    // Also add email chip
+    const emailVar = `{{ '{{' }} email {{ '}}' }}`;
+    
+    const emailSubjectChip = document.createElement('span');
+    emailSubjectChip.className = 'chip';
+    emailSubjectChip.textContent = emailVar;
+    emailSubjectChip.onclick = () => insertToSubject(emailVar);
+    subjectChips.appendChild(emailSubjectChip);
+    
+    const emailBodyChip = document.createElement('span');
+    emailBodyChip.className = 'chip';
+    emailBodyChip.textContent = emailVar;
+    emailBodyChip.onclick = () => insertToEditor(emailVar);
+    bodyChips.appendChild(emailBodyChip);
+    
+    // Show the chip containers
+    document.getElementById('variableInfo').style.display = 'block';
+    document.getElementById('bodyChipsContainer').style.display = 'block';
+  }
   
   // Schedule toggle
   let scheduleMode = false;
