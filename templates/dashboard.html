@@ -246,6 +246,29 @@
     <h1>✉️ New Bulk Email</h1>
   </div>
   
+  <!-- Analytics Widget -->
+  <div id="analyticsWidget" style="margin: 16px 24px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
+    <h3 style="margin: 0 0 12px 0; font-size: 16px; font-weight: 500;">📊 Campaign Analytics</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+      <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 6px;">
+        <div style="font-size: 24px; font-weight: 600;" id="totalSent">-</div>
+        <div style="font-size: 12px; opacity: 0.9;">Emails Sent</div>
+      </div>
+      <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 6px;">
+        <div style="font-size: 24px; font-weight: 600;" id="openRate">-</div>
+        <div style="font-size: 12px; opacity: 0.9;">Open Rate</div>
+      </div>
+      <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 6px;">
+        <div style="font-size: 24px; font-weight: 600;" id="clickRate">-</div>
+        <div style="font-size: 12px; opacity: 0.9;">Click Rate</div>
+      </div>
+      <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 6px;">
+        <div style="font-size: 24px; font-weight: 600;" id="totalOpened">-</div>
+        <div style="font-size: 12px; opacity: 0.9;">Total Opens</div>
+      </div>
+    </div>
+  </div>
+  
   <form id="emailForm" method="POST" action="/send" enctype="multipart/form-data">
     
     <!-- Recipients -->
@@ -357,6 +380,29 @@
 </div>
 
 <script>
+  // Load analytics on page load
+  async function loadAnalytics() {
+    try {
+      const response = await fetch('/api/analytics');
+      const data = await response.json();
+      
+      if (response.ok) {
+        document.getElementById('totalSent').textContent = data.total_sent;
+        document.getElementById('openRate').textContent = data.open_rate + '%';
+        document.getElementById('clickRate').textContent = data.click_rate + '%';
+        document.getElementById('totalOpened').textContent = data.total_opened;
+      }
+    } catch (error) {
+      console.error('Failed to load analytics:', error);
+    }
+  }
+  
+  // Load analytics when page loads
+  loadAnalytics();
+  
+  // Refresh analytics every 30 seconds
+  setInterval(loadAnalytics, 30000);
+  
   // Initialize Quill editor
   var quill = new Quill('#editor', {
     theme: 'snow',
