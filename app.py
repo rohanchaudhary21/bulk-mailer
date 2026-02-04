@@ -448,6 +448,27 @@ def stats_api():
 def stats():
     return render_template("stats.html")
 
+@app.route("/api/sheet-columns", methods=["POST"])
+def get_sheet_columns():
+    """Fetch column names from Google Sheet"""
+    if not session.get("logged_in"):
+        return {"error": "Not authenticated"}, 401
+    
+    sheet_url = request.json.get("sheet_url")
+    if not sheet_url:
+        return {"error": "No sheet URL provided"}, 400
+    
+    try:
+        df = read_sheet(sheet_url)
+        columns = [col for col in df.columns.tolist() if col != 'email']
+        return {
+            "columns": columns,
+            "total_rows": len(df),
+            "has_email": 'email' in df.columns
+        }
+    except Exception as e:
+        return {"error": str(e)}, 400
+
 @app.route("/debug/jobs")
 def debug_jobs():
     """Debug endpoint to see scheduled jobs"""
