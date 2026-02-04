@@ -76,13 +76,26 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 email TEXT,
                 status TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                campaign_id TEXT,
+                opened BOOLEAN DEFAULT FALSE,
+                opened_at TIMESTAMP,
+                clicked BOOLEAN DEFAULT FALSE,
+                clicked_at TIMESTAMP
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS oauth_tokens (
                 user_email TEXT PRIMARY KEY,
                 token_json TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS link_clicks (
+                id SERIAL PRIMARY KEY,
+                email_log_id INTEGER,
+                url TEXT,
+                clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
     else:
@@ -92,13 +105,26 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
                 status TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                campaign_id TEXT,
+                opened INTEGER DEFAULT 0,
+                opened_at TIMESTAMP,
+                clicked INTEGER DEFAULT 0,
+                clicked_at TIMESTAMP
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS oauth_tokens (
                 user_email TEXT PRIMARY KEY,
                 token_json TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS link_clicks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_log_id INTEGER,
+                url TEXT,
+                clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
     
@@ -165,6 +191,11 @@ def send_bulk(user_email, recipients, subject, body, delay, sheet_data=None, att
     db = get_db()
     cursor = db.cursor()
     
+    # Generate unique campaign ID
+    import uuid
+    campaign_id = str(uuid.uuid4())[:8]
+    print(f"Campaign ID: {campaign_id}")
+    
     try:
         service = get_gmail_service(user_email)
     except Exception as e:
@@ -186,6 +217,35 @@ def send_bulk(user_email, recipients, subject, body, delay, sheet_data=None, att
                     placeholder = "{{ " + column + " }}"
                     personalized_subject = personalized_subject.replace(placeholder, str(value))
                     personalized_body = personalized_body.replace(placeholder, str(value))
+            
+            # Insert tracking data into database first to get email_log_id
+            query, params = db_execute(
+                "INSERT INTO email_logs (email, status, campaign_id) VALUES (?, ?, ?)",
+                (email, "sent", campaign_id)
+            )
+            cursor.execute(query, params)
+            db.commit()
+            
+            # Get the email_log_id
+            if DATABASE_URL:
+                cursor.execute("SELECT lastval()")
+                email_log_id = cursor.fetchone()[0]
+            else:
+                email_log_id = cursor.lastrowid
+            
+            # Add tracking pixel and wrap links
+            base_url = os.environ.get("APP_URL", "https://bulk-mailer-uiwh.onrender.com")
+            tracking_pixel = f'<img src="{base_url}/track/open/{email_log_id}" width="1" height="1" style="display:none" />'
+            
+            # Wrap links with click tracking
+            import re
+            def replace_link(match):
+                original_url = match.group(1)
+                tracked_url = f'{base_url}/track/click/{email_log_id}?url={original_url}'
+                return f'<a href="{tracked_url}"'
+            
+            personalized_body = re.sub(r'<a href="([^"]+)"', replace_link, personalized_body)
+            personalized_body += tracking_pixel
             
             # Create message with attachments if provided
             from email.mime.multipart import MIMEMultipart
@@ -214,22 +274,17 @@ def send_bulk(user_email, recipients, subject, body, delay, sheet_data=None, att
                 raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
             service.users().messages().send(userId="me", body={"raw": raw}).execute()
-
-            query, params = db_execute(
-                "INSERT INTO email_logs (email, status) VALUES (?, ?)",
-                (email, "sent")
-            )
-            cursor.execute(query, params)
-            print(f"✅ Sent to {email}")
+            print(f"✅ Sent to {email} (tracking ID: {email_log_id})")
+            
         except Exception as e:
             query, params = db_execute(
-                "INSERT INTO email_logs (email, status) VALUES (?, ?)",
-                (email, "failed")
+                "INSERT INTO email_logs (email, status, campaign_id) VALUES (?, ?, ?)",
+                (email, "failed", campaign_id)
             )
             cursor.execute(query, params)
+            db.commit()
             print(f"❌ Failed to send to {email}: {e}")
 
-        db.commit()
         time.sleep(delay)
     
     cursor.close()
@@ -447,6 +502,130 @@ def stats_api():
 @app.route("/stats")
 def stats():
     return render_template("stats.html")
+
+@app.route("/track/open/<int:email_log_id>")
+def track_open(email_log_id):
+    """Track email opens via 1x1 pixel"""
+    db = get_db()
+    cursor = db.cursor()
+    
+    # Update opened status
+    if DATABASE_URL:
+        cursor.execute(
+            "UPDATE email_logs SET opened = TRUE, opened_at = CURRENT_TIMESTAMP WHERE id = %s AND opened = FALSE",
+            (email_log_id,)
+        )
+    else:
+        cursor.execute(
+            "UPDATE email_logs SET opened = 1, opened_at = CURRENT_TIMESTAMP WHERE id = ? AND opened = 0",
+            (email_log_id,)
+        )
+    
+    db.commit()
+    cursor.close()
+    db.close()
+    
+    # Return 1x1 transparent pixel
+    from flask import Response
+    pixel = base64.b64decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+    return Response(pixel, mimetype='image/gif')
+
+@app.route("/track/click/<int:email_log_id>")
+def track_click(email_log_id):
+    """Track link clicks and redirect"""
+    original_url = request.args.get('url', '/')
+    
+    db = get_db()
+    cursor = db.cursor()
+    
+    # Update clicked status
+    if DATABASE_URL:
+        cursor.execute(
+            "UPDATE email_logs SET clicked = TRUE, clicked_at = CURRENT_TIMESTAMP WHERE id = %s",
+            (email_log_id,)
+        )
+        cursor.execute(
+            "INSERT INTO link_clicks (email_log_id, url) VALUES (%s, %s)",
+            (email_log_id, original_url)
+        )
+    else:
+        cursor.execute(
+            "UPDATE email_logs SET clicked = 1, clicked_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (email_log_id,)
+        )
+        cursor.execute(
+            "INSERT INTO link_clicks (email_log_id, url) VALUES (?, ?)",
+            (email_log_id, original_url)
+        )
+    
+    db.commit()
+    cursor.close()
+    db.close()
+    
+    return redirect(original_url)
+
+@app.route("/api/analytics")
+def get_analytics():
+    """Get email analytics"""
+    if not session.get("logged_in"):
+        return {"error": "Not authenticated"}, 401
+    
+    db = get_db()
+    cursor = db.cursor()
+    
+    # Overall stats
+    cursor.execute("SELECT COUNT(*) as count FROM email_logs WHERE status='sent'")
+    total_sent = cursor.fetchone()['count'] if DATABASE_URL else cursor.fetchone()[0]
+    
+    if DATABASE_URL:
+        cursor.execute("SELECT COUNT(*) as count FROM email_logs WHERE opened = TRUE")
+        total_opened = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(*) as count FROM email_logs WHERE clicked = TRUE")
+        total_clicked = cursor.fetchone()['count']
+    else:
+        cursor.execute("SELECT COUNT(*) as count FROM email_logs WHERE opened = 1")
+        total_opened = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM email_logs WHERE clicked = 1")
+        total_clicked = cursor.fetchone()[0]
+    
+    # Campaign breakdown
+    cursor.execute("""
+        SELECT campaign_id, 
+               COUNT(*) as sent,
+               SUM(CASE WHEN opened THEN 1 ELSE 0 END) as opened,
+               SUM(CASE WHEN clicked THEN 1 ELSE 0 END) as clicked
+        FROM email_logs
+        WHERE status='sent' AND campaign_id IS NOT NULL
+        GROUP BY campaign_id
+        ORDER BY MAX(created_at) DESC
+        LIMIT 10
+    """ if DATABASE_URL else """
+        SELECT campaign_id, 
+               COUNT(*) as sent,
+               SUM(opened) as opened,
+               SUM(clicked) as clicked
+        FROM email_logs
+        WHERE status='sent' AND campaign_id IS NOT NULL
+        GROUP BY campaign_id
+        ORDER BY MAX(created_at) DESC
+        LIMIT 10
+    """)
+    
+    campaigns = [dict(row) for row in cursor.fetchall()]
+    
+    cursor.close()
+    db.close()
+    
+    return {
+        "total_sent": total_sent,
+        "total_opened": total_opened,
+        "total_clicked": total_clicked,
+        "open_rate": round((total_opened / total_sent * 100) if total_sent > 0 else 0, 1),
+        "click_rate": round((total_clicked / total_sent * 100) if total_sent > 0 else 0, 1),
+        "campaigns": campaigns
+    }
 
 @app.route("/api/sheet-columns", methods=["POST"])
 def get_sheet_columns():
